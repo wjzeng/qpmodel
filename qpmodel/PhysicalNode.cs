@@ -195,7 +195,8 @@ namespace qpmodel.physic
         //
         // what property current node requires to implment it
         //      for example, StreamAgg requires Sort on grouping keys
-        public virtual PhysicProperty RequiredProperty() => new PhysicProperty();
+        public virtual List<PhysicProperty> RequiredProperty()
+            => new List<PhysicProperty>(new PhysicProperty[children_.Count]);
         // what property current node can supply
         //      for example, StreamAgg can supply Sort on grouping keys
         public virtual PhysicProperty SuppiedProperty() => new PhysicProperty();
@@ -383,6 +384,17 @@ namespace qpmodel.physic
             var tablerows = Math.Max(1,
                         Catalog.sysstat_.EstCardinality(logic.tabref_.relname_));
             return tablerows * 1.0;
+        }
+
+        public override PhysicProperty SuppiedProperty()
+        {
+            var logic = (logic_) as LogicScanTable;
+            if (logic.tabref_.IsDistributed())
+            {
+                Expr col = logic.tabref_.DistributedByCol();
+                return new DistributionProperty(new List<Expr> { col });
+            }
+            return PhysicProperty.nullprop;
         }
     }
 
@@ -880,6 +892,14 @@ namespace qpmodel.physic
             var outputcost = logic_.Card() * 1.0;
             return buildcost + probecost + outputcost;
         }
+        public override List<PhysicProperty> RequiredProperty()
+        {
+            var logic = logic_ as LogicJoin;
+            logic.CreateKeyList(false); // ensure existence of left/right keys
+
+            return new List<PhysicProperty>
+            { new DistributionProperty(logic.leftKeys_), new DistributionProperty(logic.rightKeys_)};
+        }
     }
 
     public abstract class PhysicAgg : PhysicNode
@@ -1085,11 +1105,11 @@ namespace qpmodel.physic
     {
         public PhysicStreamAgg(LogicAgg logic, PhysicNode l) : base(logic, l) { }
         public override string ToString() => $"PStreamAgg({child_()}: {Cost()})";
-        public override PhysicProperty RequiredProperty()
+        public override List<PhysicProperty> RequiredProperty()
         {
             var exprlist = (logic_ as LogicAgg).groupby_;
             if (exprlist is null) return null;
-            return new SortOrderProperty(exprlist);
+            return new List<PhysicProperty> { new SortOrderProperty(exprlist) };
         }
         public override PhysicProperty SuppiedProperty()
         {
@@ -1799,6 +1819,11 @@ namespace qpmodel.physic
             channel_.MarkSendDone(context.machineId_);
             return s;
         }
+
+        protected override double EstimateCost()
+        {
+            return child_().Card() * 1.0;
+        }
     }
 
     public class PhysicBroadcast : PhysicRemoteExchange
@@ -1919,6 +1944,11 @@ namespace qpmodel.physic
                 callback(r);
             }
             return null;
+        }
+
+        protected override double EstimateCost()
+        {
+            return child_().Card() * 2.0;
         }
     }
 

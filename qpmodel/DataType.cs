@@ -278,6 +278,21 @@ namespace qpmodel.expr
                 return false;
             }
         }
+        public Expr DistributedByCol()
+        {
+            Debug.Assert(IsDistributed());
+            var colrefs = AllColumnsRefs();
+            Expr distrcol = null;
+            foreach (var colexpr in colrefs)
+            {
+                if (colexpr is ColExpr ce && ce.colName_ == Table().distributedBy_.name_)
+                {
+                    Debug.Assert(distrcol is null); // make sure only 1 distributed column
+                    distrcol = ce;
+                }
+            }
+            return distrcol;
+        }
         public TableDef Table() => Catalog.systable_.Table(relname_);
 
         public override string ToString()
